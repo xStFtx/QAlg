@@ -71,23 +71,33 @@ def build_model(input_shape):
     model.compile(optimizer='adam', loss='mse')
     return model
 
-# Implementing a Field Evolution Predictor class
 class FieldEvolutionPredictor:
-    def __init__(self, model, lattice_size):
+    def __init__(self, model, lattice_size, field_class):
         self.model = model
         self.lattice_size = lattice_size
+        self.field_class = field_class
 
-    def predict_evolution(self, initial_field):
-        return self.model.predict(initial_field.reshape(1, *self.lattice_size))[0]
+    def predict_evolution(self, initial_field, training_steps=1):
+        # Model makes its prediction
+        predicted_evolution = self.model.predict(initial_field.reshape(1, *self.lattice_size))[0]
+        
+        # Evolve the field using the ScalarField class
+        self.field_class.field = initial_field
+        actual_evolution = self.field_class.evolve(steps=20)
+        
+        # Train the model using this new data
+        X_new = initial_field.reshape(1, *self.lattice_size)
+        y_new = actual_evolution.reshape(1, *self.lattice_size)
+        self.model.fit(X_new, y_new, epochs=training_steps, verbose=0)
+        
+        return predicted_evolution
 
 # Example usage
 lattice_size = (32, 32)
-field = ScalarField(lattice_size, lambda_interaction=0.1, boundary='periodic')  # You can also use 'dirichlet'
+field = ScalarField(lattice_size, lambda_interaction=0.1, boundary='periodic')
 
-# Generate dataset with added noise
 X_train, y_train = generate_dataset(field, samples=5000, evolution_steps=20, noise_std=0.05)
 
-# Build and train the model with early stopping
 model = build_model(lattice_size)
 model.summary()
 
@@ -96,13 +106,13 @@ lr_schedule = keras.callbacks.LearningRateScheduler(lambda epoch: 1e-3 * 10 ** (
 
 model.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.2, callbacks=[early_stop, lr_schedule])
 
-# Use the Field Evolution Predictor class
-predictor = FieldEvolutionPredictor(model, lattice_size)
+# Use the FieldEvolutionPredictor class
+predictor = FieldEvolutionPredictor(model, lattice_size, field)
 new_field = np.random.rand(*lattice_size)
 predicted_evolution = predictor.predict_evolution(new_field)
 field.visualize(predicted_evolution, "Predicted Evolution using Neural Network")
 
-# Optionally, compare with the actual evolution
+# Compare with the actual evolution without re-training
 field.field = new_field
 actual_evolution = field.evolve(steps=20)
 field.visualize(actual_evolution, "Actual Evolution")
